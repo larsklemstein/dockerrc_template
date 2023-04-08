@@ -6,7 +6,7 @@
 # We use the container name to ensure that only one instance is active
 # at the same time.
 
-# bugs and hints: klemstein@axway.com
+# bugs and hints: lrsklemstein@gmail.com
 
 
 typeset -r PROGNAME=${0##*/}
