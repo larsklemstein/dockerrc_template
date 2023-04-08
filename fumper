@@ -1,0 +1,58 @@
+#!/bin/bash
+
+PROGNAME=${0##*/}
+
+if [ $# -ne 2 ]
+then
+    echo "usage: $PROGNAME PIDFILE LOGDIR" >&2
+    exit 2
+fi
+
+typeset -r PIDFILE="$1"
+typeset -r LOGDIR="${2%/}"
+
+echo "it: $IGNORE_TERM"
+
+if [ ! -d "$LOGDIR" ]
+then
+    echo "logdir \"$LOGDIR\" not found" >&2
+    exit 1
+fi
+
+if [ -f $PIDFILE ]
+then
+    echo "lock $PIDFILE exists..." >&2
+    exit 1
+fi
+
+
+msg() {
+    echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] $*" >>$LOGFILE
+    echo "$*" >&2
+}
+
+stop_prog()  {
+    echo >&2
+    msg "*** Received stop signal ***"
+    sleep 1
+    /bin/rm -f $PIDFILE
+    msg "-> stopped."
+
+    exit 0
+}
+
+typeset -r LOGFILE=$LOGDIR/$PROGNAME.log
+msg "Log output goes to $LOGFILE"
+
+trap stop_prog SIGINT SIGTERM
+
+echo $$ > $PIDFILE
+
+typeset -i n=0
+
+while :
+do
+    n=n+1
+    msg "Fump ${n}..."
+    sleep 1
+done

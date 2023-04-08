@@ -1,0 +1,181 @@
+#!/bin/bash
+
+# Provide a rc script like command to just start/stop/status the process
+# inside the docker container
+
+# We use the container name to ensure that only one instance is active
+# at the same time.
+
+# bugs and hints: klemstein@axway.com
+
+
+typeset -r PROGNAME=${0##*/}
+
+typeset -r DOCKER_IMAGE=fumper:v03
+typeset -r CONTAINER_NAME=fumper
+
+typeset -r LOGDIR_LOCAL=/tmp/logdir
+typeset -r LOGDIR_DOCKER=/home/appuser/logs
+
+typeset -r LOGFILE_LOCAL=$LOGDIR_LOCAL/fumper.log
+
+
+main() {
+    [ $# -eq 1 ] || print_usage_and_exit
+
+    typeset arg=$(tr -d '_' <<< "$1")
+
+    case $arg in
+        start)
+            start -d
+            ;;
+
+        startforeground|startfg)
+            start
+            ;;
+        stop)
+            stop
+            ;;
+
+        status|stat)
+            status
+            ;;
+
+        fullstatus|fullstat)
+            fullstatus
+            ;;
+
+        shell|sh)
+            docker_shell
+            ;;
+        log)
+            log
+            ;;
+        *)
+            print_usage_and_exit
+    esac
+}
+
+print_usage_and_exit() {
+    usage="$PROGNAME {start[foreground]|stop"
+    usage+="|[full]status|log|shell}"
+
+    echo "usage: $usage" >&2
+    exit 2
+}
+
+msg() {
+    echo "[$PROGNAME] $*" >&2
+}
+
+start() {
+    typeset background_flag=$1
+
+    if container_alive
+    then
+        msg "Container \"$CONTAINER_NAME\" is already active!"
+        exit 1
+    fi
+
+    docker container run $background_flag  \
+    --name=$CONTAINER_NAME \
+    --mount type=bind,source=$LOGDIR_LOCAL,destination=$LOGDIR_DOCKER \
+    $DOCKER_IMAGE ignore_term
+
+    rc=$?
+
+    if [ $rc -ne 0 ]
+    then
+        msg "Ups, something went wrong..."
+        exit $rc
+    fi
+
+    sleep 1
+
+    if container_alive
+    then
+        msg "Started..."
+        exit 0
+    else
+        msg "Container not alive. Please check application logs etc."
+        msg "Consider to use start_foreground option."
+        exit 1
+    fi
+}
+
+stop() {
+    require_active_container
+
+    msg "Stop container $CONTAINER_NAM...."
+    docker container rm --force $CONTAINER_NAME | grep -v $CONTAINER_NAME
+
+    if container_alive
+    then
+        msg "Container \"$CONTAINER_NAME\" still alive!!!"
+        msg "rc=1"
+        exit 1
+    fi
+
+    msg "Stopped and removed container \"$CONTAINER_NAME\" (rc=0)"
+    exit 0
+}
+
+status() {
+    require_active_container
+
+    echo -e "*** Container \"$CONTAINER_NAME\" status ***\n"
+    docker ps | grep $CONTAINER_NAME | tr -s ' '
+
+    exit 0
+}
+
+fullstatus() {
+    require_active_container
+
+    docker ps | grep $CONTAINER_NAME
+    echo
+    echo
+    docker inspect $CONTAINER_NAME | ( [ -n "$(which jq)" ] && jq || cat; )
+
+    exit 0
+}
+
+log() {
+    if [ ! -s "$LOGFILE_LOCAL" ]
+    then
+        msg "Expected log \"$LOGFILE_LOCAL\" is absent or empty!"
+        exit 1
+    fi
+
+    if container_alive
+    then
+        tail -f $LOGFILE_LOCAL
+    else
+        echo "[...]"
+        tail -100 $LOGFILE_LOCAL
+        echo "<EOF>"
+        msg "Container not active."
+        exit 0
+    fi
+}
+
+docker_shell() {
+    require_active_container
+
+    docker container exec -it $CONTAINER_NAME bash
+    echo "Welcome back to the Matrix..."
+}
+
+container_alive() {
+    docker ps |grep -q $CONTAINER_NAME 
+}
+
+require_active_container() {
+    if ! container_alive
+    then
+        msg "Container \"$CONTAINER_NAME\" not active"
+        exit 1
+    fi
+}
+
+main "$@"
